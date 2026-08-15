@@ -13,6 +13,7 @@ Just open any HTML file in a browser to play.
 | Game | Attempts |
 |------|----------|
 | Space Invaders | [qwen3.8-27b (LM Studio)](space_invaders/space_invaders_qwen3.8-27b_lmstudio.html) |
+| Mario | [qwen3.8-27b (LM Studio)](mario/mario_qwen3.8-27b_lmstudio.html) |
 
 ## How it works
 
