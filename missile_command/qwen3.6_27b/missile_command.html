@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Missile Command</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+}
+canvas {
+  border: 2px solid #333;
+  cursor: crosshair;
+}
+#ui {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  text-align: center;
+  pointer-events: none;
+  z-index: 10;
+}
+#score { font-size: 24px; color: #ff0; }
+#wave { font-size: 18px; color: #0f0; }
+#lives { font-size: 18px; color: #f00; }
+#overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  background: rgba(0,0,0,0.85);
+  z-index: 20;
+  color: #fff;
+}
+#overlay h1 { font-size: 48px; color: #f00; margin-bottom: 20px; }
+#overlay p { font-size: 20px; margin: 8px 0; color: #ff0; }
+#overlay button {
+  margin-top: 20px;
+  padding: 12px 32px;
+  font-size: 20px;
+  font-family: 'Courier New', monospace;
+  background: #f00;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
+#overlay button:hover { background: #f66; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <div id="score">SCORE: 0</div>
+  <div id="wave">WAVE: 1</div>
+  <div id="lives">CITIES: 6</div>
+</div>
+<canvas id="game" width="800" height="600"></canvas>
+<div id="overlay">
+  <h1>MISSILE COMMAND</h1>
+  <p>Defend your cities from incoming missiles!</p>
+  <p>Click to fire counter-missiles</p>
+  <p>Explosions destroy incoming missiles</p>
+  <button id="startBtn">START GAME</button>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width;
+const H = canvas.height;
+
+// Audio context for sound effects
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+// Sound synthesis functions
+function playLaunch() {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.3);
+  gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.4);
+}
+
+function playExplosion() {
+  if (!audioCtx) return;
+  const bufferSize = audioCtx.sampleRate * 0.6;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+  }
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(1500, audioCtx.currentTime);
+  filter.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.6);
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(audioCtx.destination);
+  source.start();
+}
+
+function playCityDestroy() {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 1.0);
+  gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.0);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 1.0);
+
+  const bufferSize = audioCtx.sampleRate * 0.8;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 1.5);
+  }
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  const gain2 = audioCtx.createGain();
+  gain2.gain.setValueAtTime(0.4, audioCtx.currentTime);
+  gain2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
+  source.connect(gain2);
+  gain2.connect(audioCtx.destination);
+  source.start();
+}
+
+function playWarning() {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+  gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+  gain.gain.setValueAtTime(0.08, audioCtx.currentTime + 0.1);
+  gain.gain.setValueAtTime(0, audioCtx.currentTime + 0.15);
+  gain.gain.setValueAtTime(0.08, audioCtx.currentTime + 0.25);
+  gain.gain.setValueAtTime(0.08, audioCtx.currentTime + 0.35);
+  gain.gain.setValueAtTime(0, audioCtx.currentTime + 0.4);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.5);
+}
+
+function playGameOver() {
+  if (!audioCtx) return;
+  const notes = [400, 350, 300, 200];
+  notes.forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime + i * 0.3);
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime + i * 0.3);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + i * 0.3 + 0.25);
+    osc.start(audioCtx.currentTime + i * 0.3);
+    osc.stop(audioCtx.currentTime + i * 0.3 + 0.3);
+  });
+}
+
+// Game state
+let gameRunning = false;
+let score = 0;
+let wave = 1;
+let cities = [];
+let bases = [];
+let enemyMissiles = [];
+let playerMissiles = [];
+let explosions = [];
+let particles = [];
+let waveTimer = 0;
+let waveMissilesLeft = 0;
+let waveMissilesTotal = 0;
+let waveDelay = 0;
+let shakeTimer = 0;
+let shakeIntensity = 0;
+let gameOver = false;
+
+// City configuration
+const CITY_Y = H - 40;
+const CITY_W = 30;
+const CITY_H = 20;
+const BASE_Y = H - 20;
+const BASE_AMMO_MAX = 10;
+
+function initGame() {
+  score = 0;
+  wave = 1;
+  gameOver = false;
+  cities = [];
+  bases = [];
+  enemyMissiles = [];
+  playerMissiles = [];
+  explosions = [];
+  particles = [];
+  waveDelay = 120;
+
+  // 6 cities at bottom
+  const cityPositions = [100, 230, 340, 460, 570, 700];
+  cityPositions.forEach(x => {
+    cities.push({ x, y: CITY_Y, alive: true });
+  });
+
+  // 3 bases between cities
+  const basePositions = [165, 400, 635];
+  basePositions.forEach(x => {
+    bases.push({ x, y: BASE_Y, ammo: BASE_AMMO_MAX });
+  });
+
+  startWave();
+  updateUI();
+}
+
+function startWave() {
+  waveMissilesTotal = 8 + wave * 3;
+  waveMissilesLeft = waveMissilesTotal;
+  waveTimer = 0;
+}
+
+function updateUI() {
+  document.getElementById('score').textContent = `SCORE: ${score}`;
+  document.getElementById('wave').textContent = `WAVE: ${wave}`;
+  document.getElementById('lives').textContent = `CITIES: ${cities.filter(c => c.alive).length}`;
+}
+
+// Spawn enemy missile
+function spawnEnemyMissile() {
+  const aliveCities = cities.filter(c => c.alive);
+  if (aliveCities.length === 0) return;
+
+  const target = aliveCities[Math.floor(Math.random() * aliveCities.length)];
+  const startX = Math.random() * (W - 80) + 40;
+
+  const speed = 0.5 + wave * 0.15 + Math.random() * 0.3;
+  const dx = target.x - startX;
+  const dy = target.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  enemyMissiles.push({
+    x: startX,
+    y: 0,
+    vx: (dx / dist) * speed,
+    vy: (dy / dist) * speed,
+    trail: [],
+    split: Math.random() < 0.3 + wave * 0.05,
+    splitY: 100 + Math.random() * 150
+  });
+
+  waveMissilesLeft--;
+  if (waveMissilesLeft <= 0 && waveTimer % 60 < 30) {
+    playWarning();
+  }
+}
+
+// Fire player missile
+function firePlayerMissile(targetX, targetY) {
+  // Find closest base with ammo
+  let bestBase = null;
+  let bestDist = Infinity;
+  bases.forEach(base => {
+    if (base.ammo > 0) {
+      const dist = Math.abs(base.x - targetX);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestBase = base;
+      }
+    }
+  });
+
+  if (!bestBase) return;
+
+  bestBase.ammo--;
+  const dx = targetX - bestBase.x;
+  const dy = targetY - bestBase.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const speed = 6;
+
+  playerMissiles.push({
+    x: bestBase.x,
+    y: bestBase.y,
+    vx: (dx / dist) * speed,
+    vy: (dy / dist) * speed,
+    targetX,
+    targetY,
+    distTraveled: 0,
+    totalDist: dist
+  });
+
+  playLaunch();
+  updateUI();
+}
+
+// Create explosion
+function createExplosion(x, y, radius, color) {
+  explosions.push({
+    x, y,
+    radius: 0,
+    maxRadius: radius,
+    growing: true,
+    color: color || '#ff6600',
+    life: 40
+  });
+
+  // Spawn particles
+  for (let i = 0; i < 15; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 3;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 30 + Math.random() * 20,
+      color: color || '#ff6600',
+      size: 2 + Math.random() * 2
+    });
+  }
+
+  playExplosion();
+}
+
+// Create city destruction effect
+function destroyCity(city) {
+  city.alive = false;
+  createExplosion(city.x, city.y, 50, '#ff0000');
+  shakeTimer = 20;
+  shakeIntensity = 8;
+  playCityDestroy();
+  updateUI();
+
+  if (cities.filter(c => c.alive).length === 0) {
+    endGame();
+  }
+}
+
+function endGame() {
+  gameRunning = false;
+  gameOver = true;
+  playGameOver();
+  showOverlay('GAME OVER', `Final Score: ${score}`, 'TRY AGAIN');
+}
+
+function showOverlay(title, subtitle, btnText) {
+  const overlay = document.getElementById('overlay');
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <h1>${title}</h1>
+    <p>${subtitle}</p>
+    <button id="startBtn">${btnText}</button>
+  `;
+  document.getElementById('startBtn').addEventListener('click', () => {
+    overlay.style.display = 'none';
+    initAudio();
+    initGame();
+    gameRunning = true;
+  });
+}
+
+// Collision detection
+function circleCollision(x1, y1, r1, x2, y2, r2) {
+  const dx = x1 - x2;
+  const dy = y1 - y2;
+  return (dx * dx + dy * dy) < (r1 + r2) * (r1 + r2);
+}
+
+// Update game state
+function update() {
+  if (!gameRunning) return;
+
+  // Wave management
+  if (waveMissilesLeft > 0) {
+    waveTimer++;
+    const interval = Math.max(15, 60 - wave * 3);
+    if (waveTimer % interval === 0) {
+      spawnEnemyMissile();
+    }
+  }
+
+  // Check if wave is complete
+  if (waveMissilesLeft <= 0 && enemyMissiles.length === 0 && explosions.length === 0) {
+    waveDelay++;
+    if (waveDelay > 180) {
+      wave++;
+      waveDelay = 0;
+      // Replenish some ammo
+      bases.forEach(b => { b.ammo = Math.min(b.ammo + 3, BASE_AMMO_MAX); });
+      startWave();
+      updateUI();
+    }
+  }
+
+  // Update enemy missiles
+  for (let i = enemyMissiles.length - 1; i >= 0; i--) {
+    const m = enemyMissiles[i];
+    m.trail.push({ x: m.x, y: m.y });
+    if (m.trail.length > 30) m.trail.shift();
+
+    m.x += m.vx;
+    m.y += m.vy;
+
+    // Split missile
+    if (m.split && m.y > m.splitY && !m.splitDone) {
+      m.splitDone = true;
+      for (let s = 0; s < 2; s++) {
+        const aliveCities = cities.filter(c => c.alive);
+        if (aliveCities.length === 0) break;
+        const target = aliveCities[Math.floor(Math.random() * aliveCities.length)];
+        const angle = Math.atan2(target.y - m.y, target.x - m.x) + (s === 0 ? -0.3 : 0.3);
+        const speed = 0.6 + wave * 0.15;
+        enemyMissiles.push({
+          x: m.x, y: m.y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          trail: [],
+          split: false,
+          splitY: 9999
+        });
+      }
+    }
+
+    // Check if reached target (city)
+    if (m.y >= CITY_Y - 10) {
+      // Check if near a city
+      let hitCity = false;
+      cities.forEach(city => {
+        if (city.alive && Math.abs(city.x - m.x) < 30) {
+          destroyCity(city);
+          hitCity = true;
+        }
+      });
+      if (!hitCity) {
+        createExplosion(m.x, CITY_Y, 20, '#ff4400');
+      }
+      enemyMissiles.splice(i, 1);
+    }
+  }
+
+  // Update player missiles
+  for (let i = playerMissiles.length - 1; i >= 0; i--) {
+    const m = playerMissiles[i];
+    m.x += m.vx;
+    m.y += m.vy;
+    m.distTraveled += Math.sqrt(m.vx * m.vx + m.vy * m.vy);
+
+    if (m.distTraveled >= m.totalDist) {
+      createExplosion(m.targetX, m.targetY, 35 + wave * 2);
+      playerMissiles.splice(i, 1);
+    }
+  }
+
+  // Update explosions
+  for (let i = explosions.length - 1; i >= 0; i--) {
+    const e = explosions[i];
+    if (e.growing) {
+      e.radius += (e.maxRadius - e.radius) * 0.15;
+      if (e.radius >= e.maxRadius - 2) {
+        e.growing = false;
+      }
+    } else {
+      e.life--;
+      if (e.life <= 0) {
+        explosions.splice(i, 1);
+        continue;
+      }
+    }
+
+    // Check explosions against enemy missiles
+    for (let j = enemyMissiles.length - 1; j >= 0; j--) {
+      const m = enemyMissiles[j];
+      if (circleCollision(e.x, e.y, e.radius, m.x, m.y, 3)) {
+        score += 10 + wave * 5;
+        createExplosion(m.x, m.y, 25, '#ffaa00');
+        enemyMissiles.splice(j, 1);
+        updateUI();
+      }
+    }
+  }
+
+  // Update particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.05; // gravity
+    p.life--;
+    if (p.life <= 0) {
+      particles.splice(i, 1);
+    }
+  }
+
+  // Screen shake
+  if (shakeTimer > 0) shakeTimer--;
+}
+
+// Draw everything
+function draw() {
+  ctx.save();
+
+  // Screen shake
+  if (shakeTimer > 0) {
+    const sx = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 20);
+    const sy = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 20);
+    ctx.translate(sx, sy);
+  }
+
+  // Clear with dark background
+  ctx.fillStyle = '#000011';
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw stars
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < 50; i++) {
+    const sx = (i * 137 + 50) % W;
+    const sy = (i * 97 + 20) % (H - 100);
+    const brightness = 0.3 + Math.sin(Date.now() * 0.003 + i) * 0.3;
+    ctx.globalAlpha = brightness;
+    ctx.fillRect(sx, sy, 1, 1);
+  }
+  ctx.globalAlpha = 1;
+
+  // Ground line
+  ctx.strokeStyle = '#00ff00';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, CITY_Y + CITY_H);
+  ctx.lineTo(W, CITY_Y + CITY_H);
+  ctx.stroke();
+
+  // Draw cities
+  cities.forEach(city => {
+    if (!city.alive) {
+      // Rubble
+      ctx.fillStyle = '#444';
+      ctx.fillRect(city.x - 12, CITY_Y + 10, 24, 10);
+      return;
+    }
+    // City building
+    ctx.fillStyle = '#00aaff';
+    ctx.fillRect(city.x - 15, CITY_Y - 10, 10, 30);
+    ctx.fillRect(city.x - 3, CITY_Y - 20, 8, 40);
+    ctx.fillRect(city.x + 8, CITY_Y - 5, 10, 25);
+    // Windows
+    ctx.fillStyle = '#ffff00';
+    ctx.fillRect(city.x - 12, CITY_Y - 5, 3, 3);
+    ctx.fillRect(city.x - 1, CITY_Y - 15, 3, 3);
+    ctx.fillRect(city.x + 11, CITY_Y, 3, 3);
+  });
+
+  // Draw bases
+  bases.forEach(base => {
+    // Base structure
+    ctx.fillStyle = '#00ff00';
+    ctx.beginPath();
+    ctx.moveTo(base.x, BASE_Y);
+    ctx.lineTo(base.x - 15, BASE_Y + 15);
+    ctx.lineTo(base.x + 15, BASE_Y + 15);
+    ctx.closePath();
+    ctx.fill();
+
+    // Ammo indicators
+    for (let i = 0; i < base.ammo; i++) {
+      ctx.fillStyle = '#00ff00';
+      ctx.fillRect(base.x - 10 + (i % 5) * 5, BASE_Y + 17 + Math.floor(i / 5) * 4, 3, 2);
+    }
+  });
+
+  // Draw enemy missile trails and heads
+  enemyMissiles.forEach(m => {
+    // Trail
+    if (m.trail.length > 1) {
+      ctx.strokeStyle = '#ff0000';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(m.trail[0].x, m.trail[0].y);
+      for (let i = 1; i < m.trail.length; i++) {
+        ctx.lineTo(m.trail[i].x, m.trail[i].y);
+      }
+      ctx.lineTo(m.x, m.y);
+      ctx.stroke();
+    }
+    // Warhead
+    ctx.fillStyle = '#ff4444';
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Draw player missiles
+  playerMissiles.forEach(m => {
+    ctx.strokeStyle = '#00ffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(m.x - m.vx * 3, m.y - m.vy * 3);
+    ctx.lineTo(m.x, m.y);
+    ctx.stroke();
+
+    // Head
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Draw explosions
+  explosions.forEach(e => {
+    const alpha = e.growing ? 1 : e.life / 40;
+    ctx.globalAlpha = alpha;
+
+    // Outer glow
+    const gradient = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.radius);
+    gradient.addColorStop(0, '#ffffff');
+    gradient.addColorStop(0.3, e.color);
+    gradient.addColorStop(1, 'transparent');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
+  });
+
+  // Draw particles
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life / 50;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+  });
+  ctx.globalAlpha = 1;
+
+  // Wave announcement
+  if (waveDelay > 0 && waveDelay < 180 && gameRunning) {
+    ctx.fillStyle = '#00ff00';
+    ctx.font = 'bold 36px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(`WAVE ${wave + 1} INCOMING`, W / 2, H / 2 - 40);
+  }
+
+  ctx.restore();
+}
+
+// Game loop
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// Input handling
+canvas.addEventListener('click', (e) => {
+  if (!gameRunning) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  const scaleY = H / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+
+  if (y < H - 60) {
+    firePlayerMissile(x, y);
+  }
+});
+
+// Start button
+document.getElementById('startBtn').addEventListener('click', () => {
+  document.getElementById('overlay').style.display = 'none';
+  initAudio();
+  initGame();
+  gameRunning = true;
+});
+
+// Start the game loop
+gameLoop();
+</script>
+</body>
+</html>
