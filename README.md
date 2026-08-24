@@ -17,6 +17,7 @@ Just open any HTML file in a browser to play.
 | Space Invaders | [qwen3.8-27b (LM Studio)](space_invaders/space_invaders_qwen3.8-27b_lmstudio.html) |
 | Mario | [qwen3.8-27b (LM Studio)](mario/mario_qwen3.8-27b_lmstudio.html) |
 | Missile Command | [gemma-4-26B (LM Studio)](missile_command/lmstudio-community_gemma-4-26B-A4B-it-QAT-MLX-4bit/index.html) · [gpt-oss-20b](missile_command/openai_gpt-oss-20b/index.html) · [ThinkingCap-Qwen3.6-27B](missile_command/t-prazak_ThinkingCap-Qwen3.6-27B-MLX-4bit/missile_command.html) · [qwen3.6-27b](missile_command/qwen3.6_27b/missile_command.html) |
+| Dig Dug | [ox-alpha](digdug/ox-alpha/index.html) |
 
 ## How it works
 
